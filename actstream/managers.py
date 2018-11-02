@@ -88,8 +88,11 @@ class ActionManager(GFKManager):
         following.
         """
         q = Q()
+
+        # Only get public actions anyway
         qs = self.public()
 
+        # If no user is given, return nothing
         if not obj:
             return qs.none()
 
@@ -97,35 +100,48 @@ class ActionManager(GFKManager):
         actors_by_content_type = defaultdict(lambda: [])
         others_by_content_type = defaultdict(lambda: [])
 
+        # Adds actions where `user` is the actor if `with_user_activity=True`
         if kwargs.pop('with_user_activity', False):
             object_content_type = ContentType.objects.get_for_model(obj)
             actors_by_content_type[object_content_type.id].append(obj.pk)
 
+        # Returns follows (content_type_id, object_id, actor_only)
         follow_gfks = get_model('actstream', 'follow').objects.filter(
             user=obj).values_list('content_type_id',
                                   'object_id', 'actor_only')
 
+        # Iterates over these follows
         for content_type_id, object_id, actor_only in follow_gfks.iterator():
+            # Group follows by content type (+ non actors outliers)
             actors_by_content_type[content_type_id].append(object_id)
             if not actor_only:
                 others_by_content_type[content_type_id].append(object_id)
 
+        # If still empty, returns nothing
         if len(actors_by_content_type) + len(others_by_content_type) == 0:
             return qs.none()
 
+        # For each content-type grouped followed objects
         for content_type_id, object_ids in actors_by_content_type.items():
-            q = q | Q(
-                actor_content_type=content_type_id,
-                actor_object_id__in=object_ids,
-            )
-        for content_type_id, object_ids in others_by_content_type.items():
-            q = q | Q(
-                target_content_type=content_type_id,
-                target_object_id__in=object_ids,
-            ) | Q(
-                action_object_content_type=content_type_id,
-                action_object_object_id__in=object_ids,
-            )
+
+            # SMELL: might be slow when there is a lot of objects
+            for object_id in object_ids:
+                object_follow = get_model('actstream', 'follow').objects.get(object_id=object_id,
+                                                                             content_type_id=content_type_id,
+                                                                             user_id=obj.id)
+                q = q | Q(actor_object_id=object_id,
+                          actor_content_type=content_type_id,
+                          timestamp__gte=object_follow.started) # Only select actions that are older than
+                                                                # the date the user started following the object
+            for content_type_id, object_ids in others_by_content_type.items():
+                q = q | Q(
+                    target_content_type=content_type_id,
+                    target_object_id__in=object_ids,
+                ) | Q(
+                    action_object_content_type=content_type_id,
+                    action_object_object_id__in=object_ids,
+                )
+
         return qs.filter(q, **kwargs)
 
 
