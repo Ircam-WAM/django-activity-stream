@@ -133,14 +133,14 @@ class ActionManager(GFKManager):
                           actor_content_type=content_type_id,
                           timestamp__gte=object_follow.started) # Only select actions that are older than
                                                                 # the date the user started following the object
-            for content_type_id, object_ids in others_by_content_type.items():
-                q = q | Q(
-                    target_content_type=content_type_id,
-                    target_object_id__in=object_ids,
-                ) | Q(
-                    action_object_content_type=content_type_id,
-                    action_object_object_id__in=object_ids,
-                )
+        for content_type_id, object_ids in others_by_content_type.items():
+            q = q | Q(
+                target_content_type=content_type_id,
+                target_object_id__in=object_ids,
+            ) | Q(
+                action_object_content_type=content_type_id,
+                action_object_object_id__in=object_ids,
+            )
 
         return qs.filter(q, **kwargs)
 
